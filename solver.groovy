@@ -5,11 +5,13 @@ import org.testng.collections.ListMultiMap
 import experiment
 
 @Field def assignment = []
+@Field int[] occ
 @Field int numberOfVars
 @Field def numberOfClauses
 @Field ListMultiMap<Integer, List> map = ListMultiMap.create()
 @Field def clauses = []
 @Field def vars = []
+@Field boolean flag = false
 
 def getData() {
     def cnfFile = new File(args[0])
@@ -45,7 +47,6 @@ clauses.unique()
 (1..numberOfVars).each {
     vars[it - 1] = it
 }
-println(vars)
 
 def isUnitClauseExists(var) {
     def posLit = []
@@ -59,8 +60,8 @@ def isUnitClauseExists(var) {
         if (clauses.contains([-var])) {
             negLit << [-var]
         }
-        GParsPool.withPool {
-            clauses.eachParallel {
+//        GParsPool.withPool {
+            clauses.each {
                 if (it.contains(var)) {
                     def cc = it - [var]
                     if (cc.every {
@@ -79,7 +80,7 @@ def isUnitClauseExists(var) {
                 }
 
             }
-        }
+//        }
     }
 
     if (posLit.size() > 0 && negLit.size() > 0) {
@@ -92,8 +93,9 @@ def isUnitClauseExists(var) {
 }
 
 def solve() {
+    def max_tries = Integer.parseInt(args[1])
     try {
-        (1..args[2]).each {
+        (1..max_tries).each {
             Collections.shuffle(vars)
             for (int i = 0; i <= numberOfVars; i++) {
                 assignment[i] = null
@@ -101,41 +103,83 @@ def solve() {
             for (int var : vars) {
                 def lit = isUnitClauseExists(var)
                 if (lit == "UNSAT") {
+                    println("c unsat")
                     throw new RuntimeException("UNSAT")
                 } else if (lit == "uhh") {
-                    break
+                    if (Math.random() > 0.5 ? 1 : 0) {
+                        assignment[Math.abs(var)] = Math.random() > 0.5 ? 1 : -1
+                    } else {
+                        def getMax = getMaxOccurances(var)
+                        assignment[Math.abs(var)] = getMax * -1 //Racing towards unit clauses
+                    }
                 } else if (lit == 1) {
                     assignment[Math.abs(var)] = 1
                 } else if (lit == -1) {
                     assignment[Math.abs(var)] = -1
                 } else if (lit == "random") {
-                    assignment[Math.abs(var)] = Math.random() > 0.5 ? 1 : -1
+//                    assignment[Math.abs(var)] = Math.random() > 0.5 ? 1 : -1
+                    def getMax = getMaxOccurances(var) //Racing towards unit clauses
+                    assignment[Math.abs(var)] = getMax * -1
                 }
-                println(assignment)
             }
             if (checkSAT()) {
                 throw new RuntimeException("SAT")
             }
         }
+        if (!flag) {
+            println("c unsat2")
+            println("s UNSATISFIABLE")
+        }
     }
     catch (Exception e) {
         if (e.message.toString() == "SAT") {
-            println(e.message.toString())
-        } else println("UNSAT")
+            println("s SATISFIABLE")
+            displayResult()
+        } else {
+            flag = true
+            println("c " + e)
+            println("c unsat3")
+            println("s UNSATISFIABLE")
+        }
     }
 }
 
+getNumberOfoccurances()
 solve()
 
 def checkSAT() {
-    GParsPool.withPool {
-        clauses.eachParallel {
-            clause ->
-                if (clause.every {
-                    assignment[Math.abs(it)] * it > 0
-                }) {
-                    return 1
-                } else return 0
+    for (ArrayList clause : clauses) {
+        if (clause.every {
+            assignment[Math.abs(it)] * it < 0
+        }) {
+            return 0
         }
+    }
+    return 1
+}
+
+def getMaxOccurances(def var) {
+    def a = occ[var]
+    def b = occ[var + numberOfVars]
+    if (a < b) return -1 else 1
+}
+
+def getNumberOfoccurances() {
+    def tsize = numberOfVars * 2 + 1
+    occ = new int[tsize]
+    clauses.each {
+        clause ->
+            clause.each {
+                if (it > 0) occ[it] += 1
+                else occ[Math.abs(it) + numberOfVars] += 1
+            }
+    }
+}
+
+def displayResult() {
+    flag = true
+    print("v ")
+    for (int i = 1; i <= numberOfVars; i++) {
+        print(assignment[i] * i + " ")
     }
 }
